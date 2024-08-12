@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 from reportlab.lib.pagesizes import letter
@@ -5,308 +6,374 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import psycopg2
 from datetime import datetime
-import os
+from ttkthemes import ThemedTk  # Importar para aplicar temas
 
-# Aplicación Tkinter
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Sistema de Inventario")
-        self.configure(bg="#1E1E1E")
 
-        # Estilo personalizado para el modo oscuro
-        style = ttk.Style()
-        style.configure('TFrame', background='#1E1E1E')
-        style.configure('TLabel', background='#1E1E1E', foreground='#DDDDDD')
-        style.configure('TButton', background='#3A3A3A', foreground='#DDDDDD', padding=6)
-        style.configure('TEntry', fieldbackground='#2A2A2A', foreground='#DDDDDD')
-        style.configure('Treeview', background='#1E1E1E', foreground='#DDDDDD', bordercolor='#3A3A3A')
-        style.configure('Treeview.Heading', background='#2A2A2A', foreground='#DDDDDD')
+# Clase Producto
+class Producto:
+    def __init__(self, nombre, descripcion, precio, cantidad):
+        self.nombre = nombre
+        self.descripcion = descripcion
+        self.precio = precio
+        self.cantidad = cantidad
 
-        # Notebook para pestañas
-        notebook = ttk.Notebook(self)
-        notebook.pack(expand=True, fill='both')
+    def save(self, conn):
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO productos (nombre, descripcion, precio, cantidad)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id;
+            """, (self.nombre, self.descripcion, self.precio, self.cantidad))
+            conn.commit()
+            print("Producto guardado correctamente.")
+            messagebox.showinfo("Éxito", f"Producto '{self.nombre}' guardado correctamente.")
 
-        # Frame para la pestaña de ventas
-        frame_ventas = ttk.Frame(notebook)
-        notebook.add(frame_ventas, text="Ventas")
-        self.create_ventas_frame(frame_ventas)
 
-        # Frame para la pestaña de historial de facturas
-        frame_historial_facturas = ttk.Frame(notebook)
-        notebook.add(frame_historial_facturas, text="Historial de Facturas")
-        self.create_historial_facturas_frame(frame_historial_facturas)
+# Clase Venta
+class Venta:
+    def __init__(self, fecha, cliente, productos):
+        self.fecha = fecha
+        self.cliente = cliente
+        self.productos = productos
 
-        # Frame para la pestaña de creación de productos
-        frame_crear_producto = ttk.Frame(notebook)
-        notebook.add(frame_crear_producto, text="Crear Producto")
-        self.create_crear_producto_frame(frame_crear_producto)
-
-    def create_ventas_frame(self, frame):
-        tk.Label(frame, text="Cliente:", background="#1E1E1E", foreground="#DDDDDD").grid(row=0, column=0, padx=10, pady=10)
-        self.entry_cliente = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_cliente.grid(row=0, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="ID Producto:", background="#1E1E1E", foreground="#DDDDDD").grid(row=1, column=0, padx=10, pady=10)
-        self.entry_producto_id = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_producto_id.grid(row=1, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="Nombre Producto:", background="#1E1E1E", foreground="#DDDDDD").grid(row=2, column=0, padx=10, pady=10)
-        self.entry_producto_nombre = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_producto_nombre.grid(row=2, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="Precio:", background="#1E1E1E", foreground="#DDDDDD").grid(row=3, column=0, padx=10, pady=10)
-        self.entry_precio = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_precio.grid(row=3, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="Cantidad:", background="#1E1E1E", foreground="#DDDDDD").grid(row=4, column=0, padx=10, pady=10)
-        self.entry_cantidad = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_cantidad.grid(row=4, column=1, padx=10, pady=10)
-
-        tk.Button(frame, text="Realizar Venta", command=self.realizar_venta).grid(row=5, column=0, columnspan=2, pady=10)
-        tk.Button(frame, text="Limpiar", command=self.limpiar_ventas).grid(row=6, column=0, columnspan=2, pady=10)
-
-        columns = ("ID", "Nombre", "Descripción", "Precio", "Cantidad")
-        self.tree = ttk.Treeview(frame, columns=columns, show='headings')
-        self.tree.grid(row=7, column=0, columnspan=2, pady=20)
-
-        for col in columns:
-            self.tree.heading(col, text=col)
-            self.tree.column(col, anchor='center')
-
-        tk.Button(frame, text="Consultar Productos", command=self.consultar_productos).grid(row=8, column=0, columnspan=2, pady=10)
-
-    def create_historial_facturas_frame(self, frame):
-        columns = ("ID Venta", "Fecha", "Cliente", "Total", "Estado")
-        self.tree_facturas = ttk.Treeview(frame, columns=columns, show='headings')
-        self.tree_facturas.grid(row=0, column=0, columnspan=2, pady=20)
-
-        for col in columns:
-            self.tree_facturas.heading(col, text=col)
-            self.tree_facturas.column(col, anchor='center')
-
-        tk.Button(frame, text="Consultar Historial de Facturas", command=self.consultar_facturas).grid(row=1, column=0, columnspan=2, pady=10)
-        tk.Button(frame, text="Marcar como No Válida", command=self.marcar_no_valida).grid(row=2, column=0, columnspan=2, pady=10)
-        tk.Button(frame, text="Eliminar Factura", command=self.eliminar_factura).grid(row=3, column=0, columnspan=2, pady=10)
-        tk.Button(frame, text="Limpiar", command=self.limpiar_historial_facturas).grid(row=4, column=0, columnspan=2, pady=10)
-
-    def create_crear_producto_frame(self, frame):
-        tk.Label(frame, text="Nombre:", background="#1E1E1E", foreground="#DDDDDD").grid(row=0, column=0, padx=10, pady=10)
-        self.entry_nombre = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_nombre.grid(row=0, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="Descripción:", background="#1E1E1E", foreground="#DDDDDD").grid(row=1, column=0, padx=10, pady=10)
-        self.entry_descripcion = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_descripcion.grid(row=1, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="Precio:", background="#1E1E1E", foreground="#DDDDDD").grid(row=2, column=0, padx=10, pady=10)
-        self.entry_precio_producto = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_precio_producto.grid(row=2, column=1, padx=10, pady=10)
-
-        tk.Label(frame, text="Cantidad:", background="#1E1E1E", foreground="#DDDDDD").grid(row=3, column=0, padx=10, pady=10)
-        self.entry_cantidad_producto = tk.Entry(frame, bg='#2A2A2A', fg='#DDDDDD')
-        self.entry_cantidad_producto.grid(row=3, column=1, padx=10, pady=10)
-
-        tk.Button(frame, text="Crear Producto", command=self.crear_producto).grid(row=4, column=0, columnspan=2, pady=10)
-        tk.Button(frame, text="Limpiar", command=self.limpiar_crear_producto).grid(row=5, column=0, columnspan=2, pady=10)
-
-    def conectar_db(self):
-        try:
-            conn = psycopg2.connect(
-                dbname="Inventario",
-                user="postgres",
-                password="Batman22",
-                host="localhost",
-                port="5432"
-            )
-            return conn
-        except Exception as e:
-            print(f"Error al conectar a la base de datos: {e}")
-            messagebox.showerror("Error", "No se pudo conectar a la base de datos")
-            return None
-
-    def generar_factura(self, venta, productos):
-        file_name = f"factura_{venta['fecha'].replace(' ', '_')}.pdf"
-        c = canvas.Canvas(file_name, pagesize=letter)
-        width, height = letter
-
-        # Logo de la empresa
-        try:
-            logo = ImageReader('logo.png')
-            c.drawImage(logo, 40, height - 100, width=150, height=75)
-        except Exception as e:
-            print(f"Error al cargar el logo: {e}")
-
-        # Detalles de la factura
-        c.setFont("Helvetica", 12)
-        c.drawString(40, height - 150, f"Vitech.SRL")
-        c.drawString(40, height - 170, f"Teléfono: +1 (849) 207-479")
-        c.drawString(40, height - 190, f"Fecha: {venta['fecha']}")
-        c.drawString(40, height - 210, f"Cliente: {venta['cliente']}")
-        c.drawString(40, height - 230, "Detalle del Producto:")
-
-        y_position = height - 250
-        total = 0
-
-        for producto in productos:
-            c.drawString(40, y_position, f"ID: {producto['id']}, Nombre: {producto['nombre']}, Precio: ${producto['precio']:.2f}, Cantidad: {producto['cantidad']}")
-            total += producto['precio'] * producto['cantidad']
-            y_position -= 20
-
-        c.drawString(40, y_position - 20, f"Total: ${total:.2f}")
-        c.save()
-
-        print(f"Factura guardada como {file_name}")
-        os.startfile(file_name)
-
-    def realizar_venta(self):
-        cliente = self.entry_cliente.get()
-        producto_id = int(self.entry_producto_id.get())
-        nombre_producto = self.entry_producto_nombre.get()
-        precio = float(self.entry_precio.get())
-        cantidad = int(self.entry_cantidad.get())
-
-        venta = {'fecha': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'cliente': cliente}
-        productos = [{'id': producto_id, 'nombre': nombre_producto, 'precio': precio, 'cantidad': cantidad}]
-
-        # Guardar venta en la base de datos y generar factura
-        conn = self.conectar_db()
-        if conn:
-            cursor = conn.cursor()
+    def save(self, conn):
+        with conn.cursor() as cursor:
             try:
-                cursor.execute("INSERT INTO ventas (fecha, cliente) VALUES (%s, %s) RETURNING id", (venta['fecha'], cliente))
+                cursor.execute("""
+                    INSERT INTO ventas (fecha, cliente)
+                    VALUES (%s, %s) RETURNING id;
+                """, (self.fecha, self.cliente))
                 venta_id = cursor.fetchone()[0]
-                for producto in productos:
-                    cursor.execute("INSERT INTO detalle_ventas (venta_id, producto_id, nombre, precio, cantidad) VALUES (%s, %s, %s, %s, %s)",
-                                   (venta_id, producto['id'], producto['nombre'], producto['precio'], producto['cantidad']))
-                conn.commit()
-                self.generar_factura(venta, productos)
-                messagebox.showinfo("Éxito", "Venta realizada con éxito")
-            except Exception as e:
-                conn.rollback()
-                print(f"Error al guardar la venta: {e}")
-                messagebox.showerror("Error", "No se pudo realizar la venta")
-            finally:
-                cursor.close()
-                conn.close()
 
-    def consultar_productos(self):
-        conn = self.conectar_db()
+                for producto in self.productos:
+                    cursor.execute("""
+                        INSERT INTO ventas_productos (venta_id, producto_id, cantidad)
+                        VALUES (%s, %s, %s);
+                    """, (venta_id, producto['id'], producto['cantidad']))
+
+                conn.commit()
+                return venta_id
+            except psycopg2.Error as e:
+                print(f"Error al guardar la venta: {e}")
+                conn.rollback()
+                return None
+
+
+# Conexión a la base de datos
+def connect_db():
+    try:
+        conn = psycopg2.connect(
+            dbname='Inventario',  # Nombre de tu base de datos
+            user='postgres',  # Nombre del usuario
+            password='Batman22',  # Contraseña del usuario
+            host='localhost',  # Host
+            port='5432'  # Puerto de PostgreSQL
+        )
+        print("Conexión exitosa a la base de datos.")
+        return conn
+    except psycopg2.Error as e:
+        print(f"Error al conectar a la base de datos: {e}")
+        return None
+
+
+# Generar factura en PDF
+def generar_factura(venta, productos):
+    file_name = f"factura_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    c = canvas.Canvas(file_name, pagesize=letter)
+    width, height = letter
+
+    # Agregar logo
+    logo_path = "logo.png"  # Asegúrate de que el logo está en esta ruta
+    if os.path.exists(logo_path):
+        logo = ImageReader(logo_path)
+        c.drawImage(logo, 40, height - 100, width=100, height=50)
+    else:
+        print("El archivo del logo no se encontró en la ruta especificada.")
+
+    # Información de la empresa
+    c.drawString(200, height - 50, "Vitech.SRL")
+    c.drawString(200, height - 70, "Teléfono: +1 (849) 207-479")
+
+    # Información de la factura
+    c.drawString(100, height - 140, f"Factura {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    c.drawString(100, height - 160, f"Cliente: {venta['cliente']}")
+    c.drawString(100, height - 180, f"Fecha: {venta['fecha']}")
+
+    y = height - 220
+    subtotal_general = 0  # Sumar todos los subtotales aquí
+    for producto in productos:
+        subtotal = producto['precio'] * producto['cantidad']
+        subtotal_general += subtotal
+        c.drawString(100, y,
+                     f"Producto: {producto['nombre']}, Precio: {producto['precio']}, Cantidad: {producto['cantidad']}, Subtotal: {subtotal}")
+        y -= 20
+
+    # Calcular ITBIS y total
+    itbis = subtotal_general * 0.18
+    total = subtotal_general + itbis
+
+    # Mostrar el subtotal, ITBIS y total en la factura
+    c.drawString(100, y - 20, f"Subtotal: {subtotal_general:.2f}")
+    c.drawString(100, y - 40, f"ITBIS (18%): {itbis:.2f}")
+    c.drawString(100, y - 60, f"Total: {total:.2f}")
+
+    c.save()
+    print(f"Factura guardada como {file_name}")
+
+    # Abrir la factura PDF automáticamente
+    os.startfile(file_name)
+
+
+# Realizar una venta
+def realizar_venta():
+    try:
+        fecha = datetime.now()
+        cliente = entry_cliente.get().strip()
+        producto_id = entry_producto_id.get().strip()
+        producto_nombre = entry_producto_nombre.get().strip()
+        precio = entry_precio.get().strip()
+        cantidad = entry_cantidad.get().strip()
+
+        # Validación de entradas
+        if not cliente or not producto_id or not producto_nombre or not precio or not cantidad:
+            raise ValueError("Por favor, completa todos los campos.")
+
+        productos = [{
+            'id': int(producto_id),
+            'nombre': producto_nombre,
+            'precio': float(precio),
+            'cantidad': int(cantidad)
+        }]
+
+        venta = Venta(fecha, cliente, productos)
+        conn = connect_db()
         if conn:
-            cursor = conn.cursor()
-            try:
+            venta_id = venta.save(conn)
+            if venta_id:
+                generar_factura({'cliente': cliente, 'fecha': fecha}, productos)
+                messagebox.showinfo("Éxito", "Venta registrada y factura generada.")
+                consultar_facturas()  # Actualizar el historial de facturas después de una venta
+            else:
+                messagebox.showerror("Error", "Error al registrar la venta.")
+            conn.close()
+    except ValueError as e:
+        messagebox.showerror("Error de entrada", str(e))
+    except psycopg2.Error as e:
+        print(f"Error en la base de datos: {e}")
+        messagebox.showerror("Error", "Error en la conexión a la base de datos.")
+
+
+
+# Consultar productos
+def consultar_productos():
+    conn = connect_db()
+    if conn:
+        try:
+            with conn.cursor() as cursor:
                 cursor.execute("SELECT * FROM productos")
                 productos = cursor.fetchall()
-                for item in self.tree.get_children():
-                    self.tree.delete(item)
+
+                # Limpiar el treeview antes de mostrar nuevos datos
+                for item in tree.get_children():
+                    tree.delete(item)
+
+                # Insertar nuevos datos en el treeview
                 for producto in productos:
-                    self.tree.insert('', tk.END, values=producto)
-            except Exception as e:
-                print(f"Error al consultar productos: {e}")
-                messagebox.showerror("Error", "No se pudo consultar los productos")
-            finally:
-                cursor.close()
-                conn.close()
+                    tree.insert("", tk.END, values=producto)
+        except psycopg2.Error as e:
+            print(f"Error al consultar productos: {e}")
+            messagebox.showerror("Error", "Error al consultar productos.")
+        finally:
+            conn.close()
 
-    def consultar_facturas(self):
-        conn = self.conectar_db()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT id, fecha, cliente, total, estado FROM ventas")
+
+# Consultar facturas
+def consultar_facturas():
+    conn = connect_db()
+    if conn:
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT v.id, v.fecha, v.cliente, sum(p.precio * vp.cantidad) as total
+                    FROM ventas v
+                    JOIN ventas_productos vp ON v.id = vp.venta_id
+                    JOIN productos p ON vp.producto_id = p.id
+                    GROUP BY v.id, v.fecha, v.cliente
+                    ORDER BY v.fecha DESC
+                """)
                 facturas = cursor.fetchall()
-                for item in self.tree_facturas.get_children():
-                    self.tree_facturas.delete(item)
+
+                # Limpiar el treeview antes de mostrar nuevos datos
+                for item in tree_facturas.get_children():
+                    tree_facturas.delete(item)
+
+                # Insertar nuevos datos en el treeview
                 for factura in facturas:
-                    self.tree_facturas.insert('', tk.END, values=factura)
-            except Exception as e:
-                print(f"Error al consultar facturas: {e}")
-                messagebox.showerror("Error", "No se pudo consultar el historial de facturas")
-            finally:
-                cursor.close()
-                conn.close()
+                    tree_facturas.insert("", tk.END, values=factura)
+        except psycopg2.Error as e:
+            print(f"Error al consultar facturas: {e}")
+            messagebox.showerror("Error", "Error al consultar facturas.")
+        finally:
+            conn.close()
 
-    def marcar_no_valida(self):
-        selected_item = self.tree_facturas.selection()
-        if selected_item:
-            factura_id = self.tree_facturas.item(selected_item)['values'][0]
-            conn = self.conectar_db()
-            if conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("UPDATE ventas SET estado = 'No Válida' WHERE id = %s", (factura_id,))
-                    conn.commit()
-                    messagebox.showinfo("Éxito", "Factura marcada como no válida")
-                    self.consultar_facturas()
-                except Exception as e:
-                    conn.rollback()
-                    print(f"Error al marcar la factura como no válida: {e}")
-                    messagebox.showerror("Error", "No se pudo marcar la factura como no válida")
-                finally:
-                    cursor.close()
-                    conn.close()
 
-    def eliminar_factura(self):
-        selected_item = self.tree_facturas.selection()
-        if selected_item:
-            factura_id = self.tree_facturas.item(selected_item)['values'][0]
-            conn = self.conectar_db()
-            if conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("DELETE FROM ventas WHERE id = %s", (factura_id,))
-                    conn.commit()
-                    messagebox.showinfo("Éxito", "Factura eliminada")
-                    self.consultar_facturas()
-                except Exception as e:
-                    conn.rollback()
-                    print(f"Error al eliminar la factura: {e}")
-                    messagebox.showerror("Error", "No se pudo eliminar la factura")
-                finally:
-                    cursor.close()
-                    conn.close()
+# Crear un nuevo producto
+def crear_producto():
+    try:
+        nombre = entry_nombre.get().strip()
+        descripcion = entry_descripcion.get().strip()
+        precio = entry_precio_producto.get().strip()
+        cantidad = entry_cantidad_producto.get().strip()
 
-    def limpiar_ventas(self):
-        self.entry_cliente.delete(0, tk.END)
-        self.entry_producto_id.delete(0, tk.END)
-        self.entry_producto_nombre.delete(0, tk.END)
-        self.entry_precio.delete(0, tk.END)
-        self.entry_cantidad.delete(0, tk.END)
+        # Validación de entradas
+        if not nombre or not descripcion or not precio or not cantidad:
+            raise ValueError("Por favor, completa todos los campos.")
 
-    def limpiar_historial_facturas(self):
-        for item in self.tree_facturas.get_children():
-            self.tree_facturas.delete(item)
+        producto = Producto(
+            nombre=nombre,
+            descripcion=descripcion,
+            precio=float(precio),
+            cantidad=int(cantidad)
+        )
 
-    def limpiar_crear_producto(self):
-        self.entry_nombre.delete(0, tk.END)
-        self.entry_descripcion.delete(0, tk.END)
-        self.entry_precio_producto.delete(0, tk.END)
-        self.entry_cantidad_producto.delete(0, tk.END)
-
-    def crear_producto(self):
-        nombre = self.entry_nombre.get()
-        descripcion = self.entry_descripcion.get()
-        precio = float(self.entry_precio_producto.get())
-        cantidad = int(self.entry_cantidad_producto.get())
-
-        conn = self.conectar_db()
+        conn = connect_db()
         if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("INSERT INTO productos (nombre, descripcion, precio, cantidad) VALUES (%s, %s, %s, %s)",
-                               (nombre, descripcion, precio, cantidad))
-                conn.commit()
-                messagebox.showinfo("Éxito", "Producto creado exitosamente")
-                self.limpiar_crear_producto()
-            except Exception as e:
-                conn.rollback()
-                print(f"Error al crear el producto: {e}")
-                messagebox.showerror("Error", "No se pudo crear el producto")
-            finally:
-                cursor.close()
-                conn.close()
+            producto.save(conn)
+            consultar_productos()  # Actualizar la lista de productos
+            conn.close()
+            # Mostrar mensaje de éxito
+            messagebox.showinfo("Éxito", "Producto creado exitosamente.")
+    except ValueError as e:
+        messagebox.showerror("Error de entrada", str(e))
+    except psycopg2.Error as e:
+        print(f"Error en la base de datos: {e}")
+        messagebox.showerror("Error", "Error en la conexión a la base de datos.")
 
-# Ejecutar la aplicación
-if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+
+# Funciones para limpiar las pestañas
+def limpiar_ventas():
+    entry_cliente.delete(0, tk.END)
+    entry_producto_id.delete(0, tk.END)
+    entry_producto_nombre.delete(0, tk.END)
+    entry_precio.delete(0, tk.END)
+    entry_cantidad.delete(0, tk.END)
+
+
+def limpiar_crear_producto():
+    entry_nombre.delete(0, tk.END)
+    entry_descripcion.delete(0, tk.END)
+    entry_precio_producto.delete(0, tk.END)
+    entry_cantidad_producto.delete(0, tk.END)
+
+
+def limpiar_historial_facturas():
+    for item in tree_facturas.get_children():
+        tree_facturas.delete(item)
+
+
+# Configurar la interfaz gráfica
+root = ThemedTk(theme="equilux")  # Usar tema oscuro
+root.title("Gestión de Inventario")
+
+# Crear un notebook para pestañas
+notebook = ttk.Notebook(root)
+notebook.grid(row=0, column=0, padx=10, pady=10)
+
+# Frame para la pestaña de ventas
+frame_ventas = ttk.Frame(notebook)
+notebook.add(frame_ventas, text="Ventas")
+
+label_cliente = tk.Label(frame_ventas, text="Cliente:")
+label_cliente.grid(row=0, column=0, padx=10, pady=10)
+entry_cliente = tk.Entry(frame_ventas)
+entry_cliente.grid(row=0, column=1, padx=10, pady=10)
+
+label_producto_id = tk.Label(frame_ventas, text="ID Producto:")
+label_producto_id.grid(row=1, column=0, padx=10, pady=10)
+entry_producto_id = tk.Entry(frame_ventas)
+entry_producto_id.grid(row=1, column=1, padx=10, pady=10)
+
+label_producto_nombre = tk.Label(frame_ventas, text="Nombre Producto:")
+label_producto_nombre.grid(row=2, column=0, padx=10, pady=10)
+entry_producto_nombre = tk.Entry(frame_ventas)
+entry_producto_nombre.grid(row=2, column=1, padx=10, pady=10)
+
+label_precio = tk.Label(frame_ventas, text="Precio:")
+label_precio.grid(row=3, column=0, padx=10, pady=10)
+entry_precio = tk.Entry(frame_ventas)
+entry_precio.grid(row=3, column=1, padx=10, pady=10)
+
+label_cantidad = tk.Label(frame_ventas, text="Cantidad:")
+label_cantidad.grid(row=4, column=0, padx=10, pady=10)
+entry_cantidad = tk.Entry(frame_ventas)
+entry_cantidad.grid(row=4, column=1, padx=10, pady=10)
+
+button_realizar_venta = tk.Button(frame_ventas, text="Realizar Venta", command=realizar_venta)
+button_realizar_venta.grid(row=5, column=0, columnspan=2, pady=10)
+
+button_limpiar_ventas = tk.Button(frame_ventas, text="Limpiar", command=limpiar_ventas)
+button_limpiar_ventas.grid(row=6, column=0, columnspan=2, pady=10)
+
+# Tabla de productos
+columns = ("ID", "Nombre", "Descripción", "Precio", "Cantidad")
+tree = ttk.Treeview(frame_ventas, columns=columns, show='headings')
+tree.grid(row=7, column=0, columnspan=2, pady=20)
+
+for col in columns:
+    tree.heading(col, text=col)
+    tree.column(col, anchor='center')
+
+button_consultar_productos = tk.Button(frame_ventas, text="Consultar Productos", command=consultar_productos)
+button_consultar_productos.grid(row=8, column=0, columnspan=2, pady=10)
+
+# Frame para la pestaña de historial de facturas
+frame_historial_facturas = ttk.Frame(notebook)
+notebook.add(frame_historial_facturas, text="Historial de Facturas")
+
+columns_facturas = ("ID Venta", "Fecha", "Cliente", "Total")
+tree_facturas = ttk.Treeview(frame_historial_facturas, columns=columns_facturas, show='headings')
+tree_facturas.grid(row=0, column=0, columnspan=2, pady=20)
+
+for col in columns_facturas:
+    tree_facturas.heading(col, text=col)
+    tree_facturas.column(col, anchor='center')
+
+button_consultar_facturas = tk.Button(frame_historial_facturas, text="Consultar Historial de Facturas",
+                                      command=consultar_facturas)
+button_consultar_facturas.grid(row=1, column=0, columnspan=2, pady=10)
+
+button_limpiar_historial = tk.Button(frame_historial_facturas, text="Limpiar", command=limpiar_historial_facturas)
+button_limpiar_historial.grid(row=2, column=0, columnspan=2, pady=10)
+
+# Frame para la pestaña de creación de productos
+frame_crear_producto = ttk.Frame(notebook)
+notebook.add(frame_crear_producto, text="Crear Producto")
+
+label_nombre = tk.Label(frame_crear_producto, text="Nombre:")
+label_nombre.grid(row=0, column=0, padx=10, pady=10)
+entry_nombre = tk.Entry(frame_crear_producto)
+entry_nombre.grid(row=0, column=1, padx=10, pady=10)
+
+label_descripcion = tk.Label(frame_crear_producto, text="Descripción:")
+label_descripcion.grid(row=1, column=0, padx=10, pady=10)
+entry_descripcion = tk.Entry(frame_crear_producto)
+entry_descripcion.grid(row=1, column=1, padx=10, pady=10)
+
+label_precio_producto = tk.Label(frame_crear_producto, text="Precio:")
+label_precio_producto.grid(row=2, column=0, padx=10, pady=10)
+entry_precio_producto = tk.Entry(frame_crear_producto)
+entry_precio_producto.grid(row=2, column=1, padx=10, pady=10)
+
+label_cantidad_producto = tk.Label(frame_crear_producto, text="Cantidad:")
+label_cantidad_producto.grid(row=3, column=0, padx=10, pady=10)
+entry_cantidad_producto = tk.Entry(frame_crear_producto)
+entry_cantidad_producto.grid(row=3, column=1, padx=10, pady=10)
+
+button_crear_producto = tk.Button(frame_crear_producto, text="Crear Producto", command=crear_producto)
+button_crear_producto.grid(row=4, column=0, columnspan=2, pady=10)
+
+button_limpiar_crear_producto = tk.Button(frame_crear_producto, text="Limpiar", command=limpiar_crear_producto)
+button_limpiar_crear_producto.grid(row=5, column=0, columnspan=2, pady=10)
+
+root.mainloop()
+
