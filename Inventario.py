@@ -86,7 +86,7 @@ def generar_factura(venta, productos):
     logo_path = "logo.png"  # Asegúrate de que el logo está en esta ruta
     if os.path.exists(logo_path):
         logo = ImageReader(logo_path)
-        c.drawImage(logo, 40, height - 100, width=100, height=50)
+        c.drawImage(logo, 40, height - 100, width=100, height=80)
     else:
         print("El archivo del logo no se encontró en la ruta especificada.")
 
@@ -105,7 +105,7 @@ def generar_factura(venta, productos):
         subtotal = producto['precio'] * producto['cantidad']
         subtotal_general += subtotal
         c.drawString(100, y,
-                     f"Producto: {producto['nombre']}, Precio: {producto['precio']}, Cantidad: {producto['cantidad']}, Subtotal: {subtotal}")
+                     f"Producto: {producto['nombre']}, Precio: {producto['precio']}, Cantidad: {producto['cantidad']}")
         y -= 20
 
     # Calcular ITBIS y total
@@ -161,7 +161,6 @@ def realizar_venta():
     except psycopg2.Error as e:
         print(f"Error en la base de datos: {e}")
         messagebox.showerror("Error", "Error en la conexión a la base de datos.")
-
 
 
 # Consultar productos
@@ -376,4 +375,3 @@ button_limpiar_crear_producto = tk.Button(frame_crear_producto, text="Limpiar", 
 button_limpiar_crear_producto.grid(row=5, column=0, columnspan=2, pady=10)
 
 root.mainloop()
-
